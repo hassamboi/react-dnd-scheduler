@@ -1,4 +1,3 @@
-import { UniqueIdentifier } from '@dnd-kit/core';
 import { useEffect, useState } from 'react';
 import { BaseItem } from '../../types';
 import { useSortable } from '@dnd-kit/sortable';
@@ -6,7 +5,6 @@ import { ITEM_TYPE } from '../../constants';
 import { Item } from './Item';
 
 export type DraggableItemProps<TItem extends BaseItem = BaseItem> = {
-  laneId: UniqueIdentifier;
   data: TItem;
   handle?: boolean;
   disabled?: boolean;
@@ -21,7 +19,6 @@ export const DraggableItem = <TItem extends BaseItem = BaseItem>({
   handle = false,
   renderItem,
   style = () => ({}),
-  laneId,
   wrapperStyle,
 }: DraggableItemProps<TItem>) => {
   const {
@@ -53,10 +50,9 @@ export const DraggableItem = <TItem extends BaseItem = BaseItem>({
       wrapperStyle={wrapperStyle && wrapperStyle()}
       style={{
         ...style({
-          data,
+          ...data,
           isDragging,
           isSorting,
-          laneId,
         }),
       }}
       transition={transition}

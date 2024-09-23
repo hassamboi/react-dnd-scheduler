@@ -16,6 +16,7 @@ export interface Props {
   scrollable?: boolean;
   shadow?: boolean;
   placeholder?: boolean;
+  disableHandle?: boolean;
   unstyled?: boolean;
   onClick?(): void;
   onRemove?(): void;
@@ -33,6 +34,7 @@ export const Lane = forwardRef<any, Props>(
       onRemove,
       label,
       placeholder,
+      disableHandle = false,
       style,
       scrollable,
       shadow,
@@ -70,7 +72,7 @@ export const Lane = forwardRef<any, Props>(
             {label}
             <div className={styles.Actions}>
               {onRemove ? <Remove onClick={onRemove} /> : undefined}
-              <Handle {...handleProps} />
+              {!disableHandle && <Handle {...handleProps} />}
             </div>
           </div>
         ) : null}

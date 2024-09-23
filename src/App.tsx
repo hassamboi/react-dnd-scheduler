@@ -6,6 +6,7 @@ function App() {
     { id: 'A1', laneId: 'A', offset: 0 },
     { id: 'A2', laneId: 'A', offset: 60 },
     { id: 'B1', laneId: 'B', offset: 0 },
+    { id: 'Unassigned', laneId: null, offset: 0 },
   ];
   const lanes: BaseLane[] = [{ id: 'A' }, { id: 'B' }];
 

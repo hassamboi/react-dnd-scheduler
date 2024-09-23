@@ -99,7 +99,7 @@ export const Item = React.memo(
           style={
             {
               ...wrapperStyle,
-              position: 'absolute',
+              position: dragOverlay ? 'unset' : 'absolute',
               left: 0,
               right: 0,
               top: data.offset,

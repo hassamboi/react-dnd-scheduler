@@ -1,4 +1,5 @@
 import {
+  Active,
   closestCenter,
   CollisionDetection,
   defaultDropAnimationSideEffects,
@@ -26,13 +27,14 @@ import {
 } from '@dnd-kit/sortable';
 import { BaseItem, BaseLane } from '../types';
 import { createSchedulerProvider, ISchedulerContext } from '../context/SchedulerContext';
-import { FC, useMemo } from 'react';
+import { FC, useEffect, useMemo } from 'react';
 import { createSnapModifier } from '@dnd-kit/modifiers';
 import { findIndexById } from '../utils';
-import { LANE_TYPE, STEP_SIZE } from '../constants';
-import { DroppableLane } from '../components/Lane';
+import { ADD_LANE_ID, LANE_TYPE, STEP_SIZE, UNASSIGNED_LANE_ID } from '../constants';
+import { DroppableLane, Lane } from '../components/Lane';
 import { DraggableItem } from '../components/Item/DraggableItem';
-import { createPortal } from 'react-dom';
+import { createPortal, unstable_batchedUpdates } from 'react-dom';
+import { Item } from '../components/Item';
 
 const dropAnimation: DropAnimation = {
   sideEffects: defaultDropAnimationSideEffects({
@@ -52,7 +54,7 @@ export type SchedulerProps<TItem extends BaseItem = BaseItem> = {
   getItemStyles?(args: {
     value: TItem;
     isDragging: boolean;
-    laneId: UniqueIdentifier;
+    laneId?: UniqueIdentifier | null;
     isSorting: boolean;
     isDragOverlay: boolean;
   }): React.CSSProperties;
@@ -84,6 +86,7 @@ export function createScheduler<
     stepSize = STEP_SIZE,
     laneStyle,
     wrapperStyle = () => ({}),
+    getItemStyles = () => ({}),
     renderItem,
   }) => {
     const { items, lanes, active, setItems, setLanes, setActive, isItem, isLane } = useScheduler();
@@ -104,13 +107,15 @@ export function createScheduler<
       const isActiveLane = active.data.current?.type === LANE_TYPE;
       const isOverLane = over.data.current?.type === LANE_TYPE;
 
-      if (isActiveLane && isOverLane) {
+      if (isActiveLane && over.id !== UNASSIGNED_LANE_ID) {
         setLanes((lanes) => {
           const activeIndex = findIndexById(lanes, active.id);
           const overIndex = findIndexById(lanes, over.id);
 
           return arrayMove(lanes, activeIndex, overIndex);
         });
+
+        return;
       }
 
       const activeItem: TItem | undefined = active?.data?.current?.data;
@@ -122,6 +127,9 @@ export function createScheduler<
         ? over.id
         : over.data.current?.data?.laneId;
 
+      console.log('ACTIVE ID:', active.id);
+      console.log('NEW LANE ID:', newLaneId);
+
       const updatedItems = items.map((item) =>
         item.id === active.id ? { ...item, offset: newOffset, laneId: newLaneId } : item
       );
@@ -130,8 +138,21 @@ export function createScheduler<
     };
 
     const handleRemoveLane = (laneId: UniqueIdentifier) => {
+      setItems((items) =>
+        items.map((item) => (item.laneId === laneId ? { ...item, laneId: null } : item))
+      );
       setLanes((lanes) => lanes.filter((lane) => lane.id !== laneId));
     };
+
+    function handleAddLane() {
+      unstable_batchedUpdates(() => {
+        // setLanes((lanes) => [...lanes, newLaneId]);
+        // setItems((items) => ({
+        //   ...items,
+        //   [newLaneId]: [],
+        // }));
+      });
+    }
 
     const collisionDetection: CollisionDetection = (args) => {
       const pointerWithinCollisions = pointerWithin(args);
@@ -141,6 +162,56 @@ export function createScheduler<
       } else {
         return closestCenter(args);
       }
+    };
+
+    useEffect(() => {
+      console.log('ITEMS:', items);
+    }, [items]);
+
+    const renderItemDragOverlay = (item: Active) => {
+      const data: TItem = item.data.current?.data;
+
+      return (
+        <Item
+          data={data}
+          handle={handle}
+          style={{
+            ...getItemStyles({
+              laneId: data.laneId,
+              value: item.data.current?.value,
+              isSorting: true,
+              isDragging: true,
+              isDragOverlay: true,
+            }),
+          }}
+          renderItem={renderItem}
+          dragOverlay
+        />
+      );
+    };
+
+    const renderLaneDragOverlay = (lane: Active) => {
+      return (
+        <Lane label={`Column ${lane.id}`} shadow unstyled={false}>
+          {items
+            .filter((item) => item.laneId === lane.id)
+            .map((item) => (
+              <Item
+                key={item.id}
+                data={item}
+                handle={handle}
+                style={getItemStyles({
+                  laneId: item.laneId,
+                  value: item,
+                  isDragging: false,
+                  isSorting: false,
+                  isDragOverlay: false,
+                })}
+                renderItem={renderItem}
+              />
+            ))}
+        </Lane>
+      );
     };
 
     return (
@@ -158,48 +229,79 @@ export function createScheduler<
             gridAutoFlow: vertical ? 'row' : 'column',
           }}
         >
+          <DroppableLane<BaseLane, TItem>
+            key={UNASSIGNED_LANE_ID}
+            data={{ id: UNASSIGNED_LANE_ID }}
+            label={minimal ? undefined : `Unassigned Items`}
+            items={items.filter((item) => !item.laneId || item.laneId === UNASSIGNED_LANE_ID)}
+            scrollable={scrollable}
+            style={laneStyle}
+            unstyled={minimal}
+            disableHandle
+          >
+            {items
+              .filter((item) => !item.laneId || item.laneId === UNASSIGNED_LANE_ID)
+              .map((item) => (
+                <DraggableItem
+                  data={item}
+                  key={item.id}
+                  handle={handle}
+                  wrapperStyle={wrapperStyle}
+                />
+              ))}
+          </DroppableLane>
           <SortableContext
             items={lanes}
             strategy={vertical ? verticalListSortingStrategy : horizontalListSortingStrategy}
           >
-            {lanes.map((lane) => {
-              const laneItems = items.filter((item) => item.laneId === lane.id);
+            {lanes
+              .filter((lane) => lane.id !== UNASSIGNED_LANE_ID && lane.id !== ADD_LANE_ID)
+              .map((lane) => {
+                const laneItems = items.filter((item) => item.laneId === lane.id);
 
-              return (
-                <DroppableLane<TLane, TItem>
-                  key={lane.id}
-                  data={lane}
-                  label={minimal ? undefined : `Column ${lane.id}`}
-                  items={laneItems}
-                  scrollable={scrollable}
-                  style={laneStyle}
-                  unstyled={minimal}
-                  onRemove={() => handleRemoveLane(lane.id)}
-                >
-                  {laneItems.map((item, index) => (
-                    <DraggableItem
-                      data={item}
-                      laneId={lane.id}
-                      key={index}
-                      handle={handle}
-                      renderItem={renderItem}
-                      wrapperStyle={wrapperStyle}
-                    />
-                  ))}
-                </DroppableLane>
-              );
-            })}
+                return (
+                  <DroppableLane<TLane, TItem>
+                    key={lane.id}
+                    data={lane}
+                    label={minimal ? undefined : `Column ${lane.id}`}
+                    items={laneItems}
+                    scrollable={scrollable}
+                    style={laneStyle}
+                    unstyled={minimal}
+                    onRemove={() => handleRemoveLane(lane.id)}
+                  >
+                    {laneItems.map((item) => (
+                      <DraggableItem<TItem>
+                        data={item}
+                        key={item.id}
+                        handle={handle}
+                        renderItem={renderItem}
+                        wrapperStyle={wrapperStyle}
+                      />
+                    ))}
+                  </DroppableLane>
+                );
+              })}
+            {minimal ? undefined : (
+              <DroppableLane
+                key={ADD_LANE_ID}
+                data={{ id: ADD_LANE_ID }}
+                items={[]}
+                onClick={handleAddLane}
+                placeholder
+              >
+                + Add column
+              </DroppableLane>
+            )}
           </SortableContext>
         </div>
         {createPortal(
           <DragOverlay adjustScale={adjustScale} dropAnimation={dropAnimation}>
-            {active ? (
-              isLane(active.id) ? (
-                <div style={{ color: 'red' }}>{active.id}</div>
-              ) : (
-                <div style={{ color: 'yellow' }}>{active.id} dragging</div>
-              )
-            ) : null}
+            {active
+              ? isLane(active.id)
+                ? renderLaneDragOverlay(active)
+                : renderItemDragOverlay(active)
+              : null}
           </DragOverlay>,
           document.body
         )}

@@ -5,7 +5,9 @@ import {
   FC,
   PropsWithChildren,
   SetStateAction,
+  useCallback,
   useContext,
+  useMemo,
   useState,
 } from 'react';
 import { BaseItem, BaseLane } from '../types';
@@ -46,19 +48,23 @@ export function createSchedulerProvider<
     const [lanes, setLanes] = useState<TLane[]>(props.lanes ?? []);
     const [items, setItems] = useState<TItem[]>(props.items ?? []);
     const [active, setActive] = useState<Active | null>(null);
-    const isLane = (id: UniqueIdentifier) => isInList(lanes, id);
-    const isItem = (id: UniqueIdentifier) => isInList(items, id);
 
-    const contextValue: ISchedulerContext<TLane, TItem> = {
-      lanes,
-      setLanes,
-      items,
-      setItems,
-      active,
-      setActive,
-      isLane,
-      isItem,
-    };
+    const isLane = useCallback((id: UniqueIdentifier) => isInList(lanes, id), []);
+    const isItem = useCallback((id: UniqueIdentifier) => isInList(items, id), []);
+
+    const contextValue: ISchedulerContext<TLane, TItem> = useMemo(
+      () => ({
+        lanes,
+        setLanes,
+        items,
+        setItems,
+        active,
+        setActive,
+        isLane,
+        isItem,
+      }),
+      [lanes, items, active, isLane, isItem]
+    );
 
     return (
       <SchedulerContext.Provider value={contextValue}>{props.children}</SchedulerContext.Provider>
