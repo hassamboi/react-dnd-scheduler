@@ -1,6 +1,5 @@
 import {
   Active,
-  closestCenter,
   CollisionDetection,
   defaultDropAnimationSideEffects,
   DndContext,
@@ -8,10 +7,11 @@ import {
   DragOverlay,
   DragStartEvent,
   DropAnimation,
+  getFirstCollision,
   KeyboardCoordinateGetter,
   Modifiers,
   MouseSensor,
-  pointerWithin,
+  rectIntersection,
   SensorDescriptor,
   SensorOptions,
   UniqueIdentifier,
@@ -27,7 +27,7 @@ import {
 } from '@dnd-kit/sortable';
 import { BaseItem, BaseLane } from '../types';
 import { createSchedulerProvider, ISchedulerContext } from '../context/SchedulerContext';
-import { FC, useEffect, useMemo } from 'react';
+import { FC, useCallback, useMemo, useRef } from 'react';
 import { createSnapModifier } from '@dnd-kit/modifiers';
 import { findIndexById } from '../utils';
 import { ADD_LANE_ID, LANE_TYPE, STEP_SIZE, UNASSIGNED_LANE_ID } from '../constants';
@@ -90,6 +90,7 @@ export function createScheduler<
     renderItem,
   }) => {
     const { items, lanes, active, setItems, setLanes, setActive, isItem, isLane } = useScheduler();
+    const lastOverId = useRef<UniqueIdentifier | null>(null);
 
     const snapToGrid = useMemo(() => createSnapModifier(stepSize), [stepSize]);
     const modifiers = active && isItem(active.id) ? [snapToGrid] : customModifiers;
@@ -123,18 +124,16 @@ export function createScheduler<
       if (!activeItem) return;
 
       const newOffset = activeItem.offset + delta.y;
-      const newLaneId: UniqueIdentifier | undefined = isOverLane
-        ? over.id
-        : over.data.current?.data?.laneId;
 
-      console.log('ACTIVE ID:', active.id);
-      console.log('NEW LANE ID:', newLaneId);
+      if (isOverLane && newOffset >= 0) {
+        const newLaneId = over.id;
 
-      const updatedItems = items.map((item) =>
-        item.id === active.id ? { ...item, offset: newOffset, laneId: newLaneId } : item
-      );
+        const updatedItems = items.map((item) =>
+          item.id === active.id ? { ...item, offset: newOffset, laneId: newLaneId } : item
+        );
 
-      setItems(updatedItems);
+        setItems(updatedItems);
+      }
     };
 
     const handleRemoveLane = (laneId: UniqueIdentifier) => {
@@ -154,19 +153,72 @@ export function createScheduler<
       });
     }
 
-    const collisionDetection: CollisionDetection = (args) => {
-      const pointerWithinCollisions = pointerWithin(args);
+    // const collisionDetectionStrategy: CollisionDetection = useCallback(
+    //   (args) => {
+    //     if (active?.id && isLane(active.id)) {
+    //       return closestCorners({
+    //         ...args,
+    //         droppableContainers: args.droppableContainers.filter(
+    //           (container) => container.data.current?.type === LANE_TYPE
+    //         ),
+    //       });
+    //     }
 
-      if (pointerWithinCollisions.length != 0) {
-        return pointerWithinCollisions;
-      } else {
-        return closestCenter(args);
-      }
-    };
+    //     const pointerIntersections = pointerWithin(args);
+    //     const intersections = pointerIntersections.length
+    //       ? pointerIntersections
+    //       : closestCorners(args);
+    //     const overId = getFirstCollision(intersections, 'id');
 
-    useEffect(() => {
-      console.log('ITEMS:', items);
-    }, [items]);
+    //     if (overId) {
+    //       lastOverId.current = overId;
+    //       return [{ id: overId }];
+    //     }
+
+    //     return lastOverId.current ? [{ id: lastOverId.current }] : [];
+    //   },
+    //   [active, items]
+    // );
+
+    const collisionDetectionStrategy: CollisionDetection = useCallback(
+      (args) => {
+        const activeRect = args?.active?.rect?.current?.translated;
+
+        if (!activeRect) return [];
+
+        const snappedTop = Math.round(activeRect.top / stepSize) * stepSize;
+        const snappedBottom = snappedTop + activeRect.height;
+
+        const laneId = active?.data.current?.data?.laneId;
+        const laneItems = items.filter((item) => item.laneId === laneId);
+
+        const isOverlapping = laneItems.some((item) => {
+          const itemTop = item.offset;
+          const itemBottom = item.offset + 60; /** height */
+
+          return (
+            (snappedTop >= itemTop && snappedTop < itemBottom) ||
+            (snappedBottom > itemTop && snappedBottom <= itemBottom) ||
+            (snappedTop < itemTop && snappedBottom > itemBottom)
+          );
+        });
+
+        if (!isOverlapping) {
+          // Proceed with the default rect intersection to detect valid drop targets
+          const intersections = rectIntersection(args);
+          const overId = getFirstCollision(intersections, 'id');
+
+          if (overId) {
+            lastOverId.current = overId;
+            return [{ id: overId }];
+          }
+        }
+
+        // Fallback to last valid drop location if no valid drop spot is found
+        return lastOverId.current ? [{ id: lastOverId.current }] : [];
+      },
+      [active, items]
+    );
 
     const renderItemDragOverlay = (item: Active) => {
       const data: TItem = item.data.current?.data;
@@ -218,7 +270,7 @@ export function createScheduler<
       <DndContext
         sensors={sensors}
         modifiers={modifiers}
-        collisionDetection={collisionDetection}
+        collisionDetection={collisionDetectionStrategy}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >

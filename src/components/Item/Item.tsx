@@ -102,7 +102,7 @@ export const Item = React.memo(
               position: dragOverlay ? 'unset' : 'absolute',
               left: 0,
               right: 0,
-              top: data.offset,
+              top: data.offset > 0 ? data.offset : 0,
               transition: [transition, wrapperStyle?.transition].filter(Boolean).join(', '),
               '--translate-x': transform ? `${Math.round(transform.x)}px` : undefined,
               '--translate-y': transform ? `${Math.round(transform.y)}px` : undefined,
